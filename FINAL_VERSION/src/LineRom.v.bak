@@ -1,0 +1,30 @@
+module LineROM(
+    input [9:0] iAddr,
+    output reg signed [15:0] oData
+);
+
+always @(*) begin
+    case(iAddr)
+        9'd0: oData = 150;
+        9'd1: oData = 0;
+        9'd2: oData = 0;
+        9'd3: oData = 150;
+        9'd4: oData = 150;
+        9'd5: oData = 150;
+        9'd6: oData = 150;
+        9'd7: oData = 150;
+        9'd8: oData = 150;
+        9'd9: oData = -150;
+        9'd10: oData = 0;
+        9'd11: oData = 0;
+        9'd12: oData = -150;
+        9'd13: oData = 0;
+        9'd14: oData = 0;
+        9'd15: oData = 150;
+        9'd16: oData = 0;
+        9'd17: oData = 0;
+        default: oData = 0;
+    endcase
+end
+
+endmodule

@@ -1,0 +1,192 @@
+module Polygon(
+    input clk,
+    input rst_n,
+
+    output oReadReq,
+    output [9:0] oAddr,
+    input signed [15:0] iMemData,
+
+    input signed [15:0] iAlpha, iBeta, iGamma,
+    input [9:0] iPointCount,
+
+    input iStart,
+    output oFinish,
+
+    input iLineDrawRead,
+    output signed [15:0] oU1, oU2, oV1, oV2,
+    output oPointValid
+);
+
+localparam S_IDLE = 0;
+localparam S_MEM = 1;
+localparam S_WAIT_DRAW = 2;
+
+reg [9:0] dAddrCntr, qAddrCntr;
+reg [3:0] dDesPtr, qDesPtr;
+reg dMemReq, qMemReq;
+reg [9:0] dLineCntr, qLineCntr;
+reg [9:0] dState, qState;
+reg signed [15:0] dPointVector [0:5]; // X1, Y1, Z1, X2, Y2, Z2
+reg signed [15:0] qPointVector [0:5];
+reg dTransformerStart, qTransformerStart;
+
+assign oAddr = qAddrCntr;
+assign oFinish = qState == S_IDLE;
+assign oReadReq = qMemReq;
+
+always @(*) begin
+    dAddrCntr = qAddrCntr;
+    dDesPtr = 0;
+    dMemReq = 0;
+    dLineCntr = qLineCntr;
+    dState = qState;
+    for(integer i = 0; i < 6; i++) dPointVector[i] = qPointVector[i];
+    dTransformerStart = 0;
+    
+    case(qState)
+
+    S_IDLE: begin
+        if(iStart) begin
+            dState = S_MEM;
+            dMemReq = 1;
+        end
+    end
+
+    S_MEM: begin
+        dMemReq = 1;
+        dAddrCntr = qAddrCntr + 1;
+        dDesPtr = qDesPtr + 1;
+        dPointVector[qDesPtr] = iMemData;
+        
+        if(qDesPtr == 5) begin
+            dState = S_WAIT_DRAW;
+            dDesPtr = 0;
+            dTransformerStart = 1;
+            dMemReq = 0;
+        end
+    end
+
+    S_WAIT_DRAW: begin
+        if(iLineDrawRead) begin
+            if(qLineCntr != lPointCount-1) begin
+                dLineCntr = qLineCntr + 1;
+                dMemReq = 1;
+                dState = S_MEM;
+            end else begin
+                dAddrCntr = 0;
+                dLineCntr = 0;
+                dState = S_IDLE;
+            end
+        end
+    end
+    endcase
+end
+
+always @(posedge clk, negedge rst_n) begin
+    if(!rst_n) begin
+        qState <= S_IDLE;
+        qAddrCntr <= 0;
+        qMemReq <= 0;
+        qLineCntr <= 0;
+        qDesPtr <= 0;
+        for(integer i = 0; i < 6; i++) begin
+            qPointVector[i] <= 0;
+        end
+        qTransformerStart <= 0;
+    end else begin
+        qState <= dState;
+        qAddrCntr <= dAddrCntr;
+        qMemReq <= dMemReq;
+        qLineCntr <= dLineCntr;
+        qDesPtr <= dDesPtr;
+        for(integer i = 0; i < 6; i++) begin
+            qPointVector[i] <= dPointVector[i];
+        end 
+        qTransformerStart <= dTransformerStart;
+    end
+end
+
+wire signed [15:0] lAlpha, lBeta, lGamma;
+wire [9:0] lPointCount;
+PipeLatch #(.size(16*3 + 10)) angleLatch (
+    .clk(clk),
+    .rst_n(rst_n),
+
+    .iStart(iStart),
+    .iDone(oFinish),
+
+    .iData({iAlpha, iBeta, iGamma, iPointCount}),
+    .oData({lAlpha, lBeta, lGamma, lPointCount})
+);
+
+wire done1;
+wire signed [15:0] u1, v1;
+Transformer point1 (
+    .clk(clk),
+    .rst_n(rst_n),
+
+    .iStart(qTransformerStart),
+    .oDone(done1),
+
+    .iX(qPointVector[0]<<<3),
+    .iY(qPointVector[1]<<<3),
+    .iZ(qPointVector[2]<<<3),
+
+    .oX(u1),
+    .oY(v1),
+
+    .iAlpha(lAlpha),
+    .iBeta(lBeta),
+    .iGamma(lGamma)
+);
+
+wire done2;
+wire signed [15:0] u2, v2;
+Transformer point2 (
+    .clk(clk),
+    .rst_n(rst_n),
+
+    .iStart(qTransformerStart),
+    .oDone(done2),
+
+    .iX(qPointVector[3]<<<3),
+    .iY(qPointVector[4]<<<3),
+    .iZ(qPointVector[5]<<<3),
+
+    .oX(u2),
+    .oY(v2),
+
+    .iAlpha(lAlpha),
+    .iBeta(lBeta),
+    .iGamma(lGamma)
+);
+
+wire queueFull1;
+PipeLatch #(.size(16*2)) pointQueue1 (
+    .clk(clk),
+    .rst_n(rst_n),
+
+    .iStart(done1),
+    .iDone(iLineDrawRead),
+
+    .iData({u1>>>3, v1>>>3}),
+    .oData({oU1, oV1}),
+    .oLocked(queueFull1)
+);
+
+wire queueFull2;
+PipeLatch #(.size(16*2)) pointQueue2 (
+    .clk(clk),
+    .rst_n(rst_n),
+
+    .iStart(done2),
+    .iDone(iLineDrawRead),
+
+    .iData({u2>>>3, v2>>>3}),
+    .oData({oU2, oV2}),
+    .oLocked(queueFull2)
+);
+
+assign oPointValid = queueFull1 & queueFull2;
+
+endmodule

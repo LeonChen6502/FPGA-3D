@@ -1,0 +1,99 @@
+module Cordic_Vec_Core(
+    input clk,
+    input rst_n,
+    input start,
+    input signed [15:0] angle,  // Input angle in fixed-point
+    input signed [15:0] x_in,
+    input signed [15:0] y_in,
+    output signed [16:0] cos_out,
+    output signed [16:0] sin_out,
+    output done,
+    output busy
+);
+
+parameter ITERATIONS = 14;
+// parameter signed [15:0] cordic_gain = 16'd19898; // Approx 0.607252 in Q1.15 format
+
+reg signed [15:0] atan_table [0:15]; // Lookup table
+initial begin    
+    atan_table[0] = 8192; // atan(2^-0)  in Q1.15
+    atan_table[1] = 4836; // atan(2^-1)
+    atan_table[2] = 2555; // ...
+    atan_table[3] = 1297;
+    atan_table[4] = 651;
+    atan_table[5] = 325;
+    atan_table[6] = 162;
+    atan_table[7] = 81;
+    atan_table[8] = 40;
+    atan_table[9] = 20;
+    atan_table[10] = 10;
+    atan_table[11] = 5;
+    atan_table[12] = 2;
+    atan_table[13] = 1;
+    atan_table[14] = 0;
+    atan_table[15] = 0;
+end
+
+reg [4:0] dCounter, qCounter;
+reg signed [16:0] qX, dX, dY, qY;
+reg signed [15:0] dAngle, qAngle;
+reg qDone, dDone;
+reg qBusy, dBusy;
+
+assign cos_out = qX;
+assign sin_out = qY;
+assign busy = qBusy;
+assign done = qDone;
+
+always @(*) begin
+    // default values for idle times
+    dBusy = qBusy;
+    dDone = 0;
+    dX = x_in;
+    dY = y_in;
+    dAngle = angle;
+    dCounter = qCounter;
+
+    if(start) begin
+        dBusy = 1;
+    end
+    if(qBusy) begin    
+        if (qAngle >= 0) begin
+            dX = qX - (qY >>> qCounter);
+            dY = qY + (qX >>> qCounter);
+            dAngle <= qAngle - atan_table[qCounter];
+        end else begin
+            dX = qX + (qY >>> qCounter);
+            dY = qY - (qX >>> qCounter);
+            dAngle = qAngle + atan_table[qCounter];
+        end
+
+        if(qCounter <= ITERATIONS-1)
+            dCounter = qCounter + 1;
+        else begin
+            dCounter = 0;
+            dDone = 1;
+            dBusy = 0;
+        end
+    end
+end
+
+always @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+        qCounter <= 0;
+        qX <= 0;
+        qY <= 0;
+        qAngle <= 0;
+        qDone <= 0;
+        qBusy <= 0;
+    end else begin
+        qCounter <= dCounter;
+        qX <= dX;
+        qY <= dY;
+        qAngle <= dAngle;
+        qDone <= dDone;
+        qBusy = dBusy;
+    end
+end
+
+endmodule

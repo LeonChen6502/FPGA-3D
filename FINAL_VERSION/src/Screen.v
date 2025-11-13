@@ -1,0 +1,110 @@
+module Screen(
+    input clk, rst_n,
+    output [7:0] red, green, blue,
+    output hsync, vsync, vgaClk, blank_n
+);
+
+/*********************VGA*********************/
+wire [10:0] HCoordinate, VCoordinate;
+
+VGA vga (
+    .iClk(clk),
+    .iRst_n(rst_n),
+
+    .iRed(R),
+    .iGreen(G),
+    .iBlue(B),
+    .oHCoordinate(HCoordinate),
+    .oVCoordinate(VCoordinate),
+
+    .oClk(vgaClk),
+    .oBlank_n(blank_n),
+    // oSync_n,
+    .oRed(red),
+    .oGreen(green),
+    .oBlue(blue),
+    .oHsync(hsync),
+    .oVsync(vsync)
+);
+
+/*********************signal generator*********************/
+parameter Period = 2000;
+reg [10:0] prescaler;
+reg signed [15:0] angle;
+reg start;
+always @(posedge clk, negedge rst_n) begin
+    if(!rst_n) begin
+        prescaler <= 31'd0;
+        angle <= 0;
+        start <= 0;
+    end  
+    else begin
+        if(prescaler == Period - 1) begin
+            prescaler <= 0;
+            angle <= angle == 31'H7FFFF ? -31'H8000 : angle + 1;
+            start <= 1;
+        end else begin
+            prescaler <= prescaler + 1;
+            angle <= angle;
+            start <= 0;
+        end
+    end        
+end
+
+/*********************vector rotation*********************/
+
+wire signed [15:0] x_in = (150)<<<3;
+wire signed [15:0] y_in = 0;
+wire signed [15:0] cos, sin;
+wire done;
+
+Cordic_Vec dut (
+    .clk(clk),
+    .rst_n(rst_n),
+    .iStart(start),
+    .iX(x_in),
+    .iY(y_in),
+    .oX(cos),
+    .oY(sin),
+    .iAngle(angle),
+    .oDone(done)
+);
+
+/*********************RAM*********************/
+reg signed [15:0] pointX, pointY;
+
+always @(posedge clk, negedge rst_n) begin
+    if(!rst_n) begin
+        pointX <= 0;
+        pointY <= 0;
+    end else begin
+        if(done) begin
+            pointX <= (cos >>> 3) + 400;
+            pointY <= (sin >>> 3) + 300;
+        end else begin 
+            pointX <= pointX;
+            pointY <= pointY;
+        end
+    end
+end
+
+wire [23:0] palette1 = 24'H023047;
+wire [23:0] palette2 = 24'HFFB703;
+
+reg [7:0] R, G, B;
+always @(*) begin
+    if (
+    (HCoordinate >= pointX - 1) && (HCoordinate <= pointX + 1) &&
+    (VCoordinate >= pointY - 1) && (VCoordinate <= pointY + 1)) 
+	 begin
+        R = palette2[23:16];
+        G = palette2[15:8];
+        B = palette2[7:0];
+    end else begin
+        R = palette1[23:16];
+        G = palette1[15:8];
+        B = palette1[7:0];
+    end
+end
+
+endmodule

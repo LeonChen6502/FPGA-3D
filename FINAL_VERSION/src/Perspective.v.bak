@@ -1,0 +1,64 @@
+`include "Divider.v"
+
+module Perspective #(
+    parameter CAMERA_DISTANCE = 1120, // the distance of the camera to the front Z clip plane
+    parameter BOX_SIZE = 600
+)(
+    input clk,
+    input rst_n,
+
+    input iStart,
+    output oDone,
+
+    input signed [15:0] iX,
+    input signed [15:0] iY,
+    input signed [15:0] iZ,
+
+    output signed [15:0] oX,
+    output signed [15:0] oY
+);
+
+wire [15:0] scale;
+wire divDone;
+wire [15:0] num = CAMERA_DISTANCE;
+wire [15:0] den = CAMERA_DISTANCE + BOX_SIZE/2 - iZ;
+Divider div (
+    .clk(clk),
+    .rst_n(rst_n),
+    .start(iStart),
+    .numerator(num),
+    .denominator(den),
+    .q016_result(scale),
+    .done(divDone)
+);
+
+wire signed [15:0] lX, lY;
+PipeLatch #(.size(16+16)) xyLatch (
+    .clk(clk),
+    .rst_n(rst_n),
+
+    .iStart(iStart),
+    .iDone(divDone),
+
+    .iData({iX, iY}),
+    .oData({lX, lY})
+);
+
+reg signed [31:0] U, V;
+reg done;
+always @(posedge clk, negedge rst_n) begin
+    if(!rst_n) begin
+        V <= 0;
+        U <= 0;
+        done <= 0;
+    end else begin
+        U <= lX * $signed(scale>>1) ;
+        V <= lY * $signed(scale>>1);
+        done <= divDone;
+    end
+end
+assign oX = U[30:15];
+assign oY = V[30:15];
+assign oDone = done;
+
+endmodule
